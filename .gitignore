@@ -1,0 +1,9 @@
+# Node/CDK
+node_modules/
+cdk.out/
+.env
+.env.*
+*.log
+
+# Misc
+.DS_Store
