@@ -1,0 +1,24 @@
+{
+  "name": "alexa-slidebolt",
+  "version": "1.0.0",
+  "description": "This Alexa skill is for private home automation testing. It does not collect, store, or share personal data.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lms-io/alexa-slidebolt.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/lms-io/alexa-slidebolt/issues"
+  },
+  "homepage": "https://github.com/lms-io/alexa-slidebolt#readme",
+  "dependencies": {
+    "ws": "^8.19.0"
+  }
+}

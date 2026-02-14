@@ -1,0 +1,15 @@
+{
+  "profiles": {
+    "default": {
+      "skillMetadata": {
+        "src": "./skill-package"
+      },
+      "code": {
+        "default": {
+          "src": "./lambda"
+        }
+      },
+      "skillId": "amzn1.ask.skill.652a95bf-dad8-4f75-af75-071c474d92f4"
+    }
+  }
+}
