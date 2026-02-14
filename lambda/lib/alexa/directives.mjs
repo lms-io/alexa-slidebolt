@@ -1,5 +1,4 @@
 import { db, DEVICES_TABLE } from '../dynamo.mjs';
-import { unmarshall } from "@aws-sdk/util-dynamodb";
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from "@aws-sdk/client-apigatewaymanagementapi";
 
 const WS_MGMT_ENDPOINT = process.env.WS_MGMT_ENDPOINT;
@@ -12,8 +11,7 @@ export async function getConnectionId(clientId) {
       sk: "conn"
     });
     if (!res.Item) return null;
-    const item = unmarshall(res.Item);
-    return item.connectionId;
+    return res.Item.connectionId;
   } catch (err) {
     console.log("GET_CONN_FAIL", err.message);
     return null;

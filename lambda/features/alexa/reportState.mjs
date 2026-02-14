@@ -1,5 +1,4 @@
 import { db, DEVICES_TABLE } from '../../lib/dynamo.mjs';
-import { unmarshall } from "@aws-sdk/util-dynamodb";
 import { msgId, errorResponse } from '../../lib/alexa/response.mjs';
 import { markDeviceActive } from '../../lib/alexa/directives.mjs';
 
@@ -15,7 +14,7 @@ export async function handleReportState(clientId, directive) {
       sk: `device#${endpointId}`
     });
     
-    const item = res.Item ? unmarshall(res.Item) : null;
+    const item = res.Item || null;
     let props = item?.state?.properties || [];
 
     if (props.length === 0) {
