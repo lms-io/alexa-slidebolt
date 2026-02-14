@@ -10,7 +10,7 @@ export async function handleRegister(clientId, body, connectionId, now) {
   }
 
   // 1. Get Client Meta
-  const res = await db(USERS_TABLE).get({ clientId: clientId });
+  const res = await db(USERS_TABLE).get({ pk: `client#${clientId}` });
   const meta = res.Item;
 
   if (!meta) {
