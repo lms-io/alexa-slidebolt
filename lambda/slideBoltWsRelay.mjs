@@ -51,11 +51,21 @@ export const handler = async (event) => {
      }
   }
 
-  // --- Dispatch ---
-  try {
-    let result = null;
+      // --- Dispatch ---
 
-    if (routeKey === 'register' || parsedBody?.action === 'register') {
+    try {
+
+      let result = null;
+
+  
+
+      console.log(`DISPATCH: action=${parsedBody?.action || routeKey} clientId=${clientId}`);
+
+  
+
+      if (routeKey === 'register' || parsedBody?.action === 'register') {
+
+  
       // Register handles its own reply logic internally (including errors)
       return await handleRegister(clientId, parsedBody, connectionId, now);
     } 
