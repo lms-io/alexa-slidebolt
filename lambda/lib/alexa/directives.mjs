@@ -1,4 +1,4 @@
-import { db, DEVICES_TABLE } from '../dynamo.mjs';
+import { db, DATA_TABLE } from '../dynamo.mjs';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from "@aws-sdk/client-apigatewaymanagementapi";
 
 const WS_MGMT_ENDPOINT = process.env.WS_MGMT_ENDPOINT;
@@ -6,9 +6,9 @@ const mgmt = WS_MGMT_ENDPOINT ? new ApiGatewayManagementApiClient({ endpoint: WS
 
 export async function getConnectionId(clientId) {
   try {
-    const res = await db(DEVICES_TABLE).get({
-      clientId: clientId,
-      sk: "conn"
+    const res = await db(DATA_TABLE).get({
+      pk: `CLIENT#${clientId}`,
+      sk: "CONN"
     });
     if (!res.Item) return null;
     return res.Item.connectionId;
@@ -50,12 +50,11 @@ export async function postDirectiveToClient(clientId, directive) {
 export async function markDeviceActive(clientId, endpointId) {
   if (!endpointId || !clientId) return;
   try {
-    await db(DEVICES_TABLE).update(
-      { clientId: clientId, sk: `device#${endpointId}` },
+    await db(DATA_TABLE).update(
+      { pk: `CLIENT#${clientId}`, sk: `DEVICE#${endpointId}` },
       "SET #status = :active",
       { "#status": "status" },
-      { ":active": "active" },
-      "attribute_exists(clientId)"
+      { ":active": "active" }
     );
   } catch (err) {
     // Ignore

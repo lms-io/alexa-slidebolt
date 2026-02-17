@@ -1,4 +1,4 @@
-import { db, USERS_TABLE } from '../../lib/dynamo.mjs';
+import { db, DATA_TABLE } from '../../lib/dynamo.mjs';
 
 export async function updateClient(payload) {
   const clientId = payload.clientId;
@@ -13,8 +13,8 @@ export async function updateClient(payload) {
     expValues[":limit"] = payload.maxMsgsPerMinute;
   }
   
-  await db(USERS_TABLE).update(
-    { pk: `client#${clientId}` },
+  await db(DATA_TABLE).update(
+    { pk: `CLIENT#${clientId}`, sk: 'METADATA' },
     updateExp,
     expNames,
     expValues

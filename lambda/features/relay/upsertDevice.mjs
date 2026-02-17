@@ -1,4 +1,4 @@
-import { db, DEVICES_TABLE } from '../../lib/dynamo.mjs';
+import { db, DATA_TABLE } from '../../lib/dynamo.mjs';
 
 export async function handleDeviceUpsert(clientId, body, now) {
   const endpoint = body.endpoint || {};
@@ -7,12 +7,12 @@ export async function handleDeviceUpsert(clientId, body, now) {
 
   if (!endpointId) return { statusCode: 400 };
 
-  let updateExp = "SET endpointId = :eid, #endpoint = :ep, updatedAt = :u, #status = if_not_exists(#status, :new), firstSeen = if_not_exists(firstSeen, :u)";
+  let updateExp = "SET endpointId = :eid, #endpoint = :ep, updatedAt = :u, #status = :active, firstSeen = if_not_exists(firstSeen, :u)";
   const expValues = {
     ":eid": endpointId,
     ":ep": endpoint,
     ":u": now,
-    ":new": "new",
+    ":active": "active",
   };
   const expNames = {
     "#status": "status",
@@ -25,8 +25,12 @@ export async function handleDeviceUpsert(clientId, body, now) {
     expNames["#state"] = "state";
   }
 
-  await db(DEVICES_TABLE).update(
-    { clientId: clientId, sk: `device#${endpointId}` },
+  // Ensure clientId is present on the record for easy reverse-lookup
+  updateExp += ", clientId = :cid";
+  expValues[":cid"] = clientId;
+
+  await db(DATA_TABLE).update(
+    { pk: `CLIENT#${clientId}`, sk: `DEVICE#${endpointId}` },
     updateExp,
     expNames,
     expValues

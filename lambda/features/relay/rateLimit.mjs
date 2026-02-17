@@ -1,15 +1,15 @@
-import { db, DEVICES_TABLE } from '../../lib/dynamo.mjs';
+import { db, DATA_TABLE } from '../../lib/dynamo.mjs';
 
 export async function checkRateLimit(clientId) {
   const windowKey = new Date().toISOString().substring(0, 16); 
-  const sk = `rate#${windowKey}`;
+  const sk = `RATE#${windowKey}`;
   const ttl = Math.floor(Date.now() / 1000) + 120; 
 
   const limit = 120; 
 
   try {
-    await db(DEVICES_TABLE).update(
-      { clientId: clientId, sk: sk },
+    await db(DATA_TABLE).update(
+      { pk: `CLIENT#${clientId}`, sk: sk },
       "ADD #count :one SET #ttl = :ttl",
       { "#count": "count", "#ttl": "ttl" },
       {

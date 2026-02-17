@@ -1,24 +1,41 @@
-import { db, DEVICES_TABLE } from '../../lib/dynamo.mjs';
+import { db, DATA_TABLE } from '../../lib/dynamo.mjs';
 import { msgId } from '../../lib/alexa/response.mjs';
 import { markDeviceActive } from '../../lib/alexa/directives.mjs';
 
 export async function handleDiscovery(clientId) {
   try {
-    const res = await db(DEVICES_TABLE).query(
-      "clientId = :cid AND begins_with(sk, :prefix)",
-      { ":cid": clientId, ":prefix": "device#" }
+    console.log(`DISCOVERY_START: clientId=${clientId}`);
+    const res = await db(DATA_TABLE).query(
+      "pk = :pk AND begins_with(sk, :sk)",
+      { ":pk": `CLIENT#${clientId}`, ":sk": "DEVICE#" }
     );
     
     const devices = res.Items || [];
-    const endpoints = devices.map(d => d.endpoint).filter(Boolean);
+    console.log(`DISCOVERY_DB_RESULTS: found ${devices.length} devices`);
+
+    const endpoints = devices.map(d => {
+      if (!d.endpoint) {
+        console.warn(`DISCOVERY_WARN: Device ${d.sk} is missing the 'endpoint' property.`);
+      }
+      return d.endpoint;
+    }).filter(Boolean);
+
+    console.log(`DISCOVERY_ENDPOINTS_MAPPED: count ${endpoints.length}`);
 
     // Mark active
     for (const dev of devices) {
       const id = dev.endpoint?.endpointId || dev.endpointId;
-      if (id) await markDeviceActive(clientId, id);
+      if (id) {
+        try {
+          await markDeviceActive(clientId, id);
+          console.log(`DISCOVERY_MARK_ACTIVE: success for device=${id}`);
+        } catch (e) {
+          console.error(`DISCOVERY_MARK_ACTIVE: fail for device=${id}`, e.message);
+        }
+      }
     }
 
-    return {
+    const response = {
       event: {
         header: {
           namespace: "Alexa.Discovery",
@@ -29,8 +46,12 @@ export async function handleDiscovery(clientId) {
         payload: { endpoints },
       },
     };
+
+    console.log("DISCOVERY_FINAL_RESPONSE:", JSON.stringify(response, null, 2));
+    return response;
+
   } catch (err) {
-    console.error("DISCOVERY_ERROR", err);
-    return { event: { header: {}, payload: { endpoints: [] } } }; // Fail safe?
+    console.error("DISCOVERY_ERROR_CRITICAL:", err.stack || err);
+    return { event: { header: {}, payload: { endpoints: [] } } };
   }
 }

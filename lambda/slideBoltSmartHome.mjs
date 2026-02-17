@@ -3,7 +3,8 @@ import { getUserProfile } from './lib/alexa/auth.mjs';
 import { handleDiscovery } from './features/alexa/discovery.mjs';
 import { handleReportState } from './features/alexa/reportState.mjs';
 import { handleControl } from './features/alexa/control.mjs';
-import { db, USERS_TABLE } from './lib/dynamo.mjs';
+import { handleAcceptGrant } from './lib/alexa/tokens.mjs';
+import { db, DATA_TABLE } from './lib/dynamo.mjs';
 
 const TEST_ALEXA_TOKEN = process.env.TEST_ALEXA_TOKEN;
 
@@ -17,6 +18,8 @@ export const handler = async (event) => {
   let token;
   if (ns === "Alexa.Discovery") {
     token = d?.payload?.scope?.token;
+  } else if (ns === "Alexa.Authorization") {
+    token = d?.payload?.grantee?.token;
   } else {
     token = d?.endpoint?.scope?.token;
   }
@@ -50,8 +53,13 @@ export const handler = async (event) => {
   const userEmail = profile?.email;
   console.log(`REQ: ${ns}.${name} user=${userId} email=${userEmail}`);
 
+  // Special Case: Authorization doesn't require an existing mapping
+  if (ns === "Alexa.Authorization" && name === "AcceptGrant") {
+    return await handleAcceptGrant(userId, d);
+  }
+
   // 2. Step A: Check for existing User-to-Client mapping
-  let mappingRes = await db(USERS_TABLE).get({ pk: `user#${userId}` });
+  let mappingRes = await db(DATA_TABLE).get({ pk: `USER#${userId}`, sk: 'METADATA' });
   let mapping = mappingRes.Item;
 
   // 3. Step B: Auto-Claim Logic (if no mapping exists)
@@ -59,10 +67,10 @@ export const handler = async (event) => {
     console.log(`CLAIM_PROCESS: No mapping for ${userId}. Checking email ${userEmail}...`);
     
     // Query GSI to find a client waiting for this email
-    const emailLookup = await db(USERS_TABLE).query(
-      "ownerEmail = :e",
-      { ":e": userEmail },
-      "OwnerEmailIndex"
+    const emailLookup = await db(DATA_TABLE).query(
+      "gsi1pk = :e",
+      { ":e": `EMAIL#${userEmail}` },
+      "GSI1"
     );
 
     const candidate = emailLookup.Items?.[0];
@@ -75,28 +83,27 @@ export const handler = async (event) => {
       if (!candidate.ownerUserId) {
         console.log(`CLAIM_SUCCESS: user=${userId} claiming client=${targetClientId}`);
         
-        // Atomic update to set ownerUserId (ensure we are the first to claim)
+        // Atomic update to set ownerUserId on the Client item
         try {
-          await db(USERS_TABLE).update(
-            { pk: candidate.pk },
+          await db(DATA_TABLE).update(
+            { pk: candidate.pk, sk: candidate.sk },
             "SET ownerUserId = :u, lastSeen = :now",
             null,
             { ":u": userId, ":now": new Date().toISOString() },
             "attribute_not_exists(ownerUserId)"
           );
-          // Add :null to values
-          // Wait, I can't pass :null if I don't define it. 
-          // Let's just use attribute_not_exists or a simple check if I am the first.
-          
-          // Better yet, since we are using docClient, just check truthiness.
           
           const newMapping = {
-            pk: `user#${userId}`,
+            pk: `USER#${userId}`,
+            sk: 'METADATA',
             clientId: targetClientId,
             email: userEmail,
-            mappedAt: new Date().toISOString()
+            mappedAt: new Date().toISOString(),
+            alexaAccessToken: null,
+            alexaRefreshToken: null,
+            alexaTokenExpiresAt: null
           };
-          await db(USERS_TABLE).put(newMapping);
+          await db(DATA_TABLE).put(newMapping);
           
           mapping = newMapping;
           console.log(`CLAIM_FINALIZED: user=${userId} <-> client=${targetClientId}`);
@@ -111,12 +118,16 @@ export const handler = async (event) => {
         // ALREADY CLAIMED BY THIS USER
         console.log(`CLAIM_RECOVER: userId matched ownerUserId. Mapping ensured.`);
         const newMapping = {
-          pk: `user#${userId}`,
+          pk: `USER#${userId}`,
+          sk: 'METADATA',
           clientId: targetClientId,
           email: userEmail,
-          mappedAt: new Date().toISOString()
+          mappedAt: new Date().toISOString(),
+          alexaAccessToken: null,
+          alexaRefreshToken: null,
+          alexaTokenExpiresAt: null
         };
-        await db(USERS_TABLE).put(newMapping);
+        await db(DATA_TABLE).put(newMapping);
         mapping = newMapping;
       } else {
         // FAIL: Claimed by someone else
@@ -134,8 +145,8 @@ export const handler = async (event) => {
 
   // Update last seen info
   if (profile && profile.email && mapping.email !== profile.email) {
-    await db(USERS_TABLE).update(
-      { pk: `user#${userId}` },
+    await db(DATA_TABLE).update(
+      { pk: `USER#${userId}`, sk: 'METADATA' },
       "SET email = :e, lastSeen = :now",
       null,
       { ":e": profile.email, ":now": new Date().toISOString() }

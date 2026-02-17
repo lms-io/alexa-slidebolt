@@ -24,19 +24,10 @@ if (fs.existsSync(ENV_PATH)) {
 }
 
 const WS_URL = process.env.TEST_WS_URL;
-const HOME1 = {
-  clientId: process.env.TEST_HOME1_CLIENT_ID,
-  secret: process.env.TEST_HOME1_SECRET,
-  label: process.env.TEST_HOME1_LABEL
-};
-const HOME2 = {
-  clientId: process.env.TEST_HOME2_CLIENT_ID,
-  secret: process.env.TEST_HOME2_SECRET,
-  label: process.env.TEST_HOME2_LABEL
-};
+const ADMIN_SECRET = process.env.WS_SHARED_SECRET;
 
-if (!WS_URL || !HOME1.clientId || !HOME2.clientId) {
-  console.error("Missing configuration in test/.env.test");
+if (!WS_URL || !ADMIN_SECRET) {
+  console.error("Missing TEST_WS_URL or WS_SHARED_SECRET");
   process.exit(1);
 }
 
@@ -62,9 +53,9 @@ class TestClient {
         if (this.resolveNext) {
           const r = this.resolveNext;
           this.resolveNext = null;
-          r(JSON.parse(str));
+          try { r(JSON.parse(str)); } catch { r({ raw: str }); }
         } else {
-          this.msgs.push(JSON.parse(str));
+          try { this.msgs.push(JSON.parse(str)); } catch { this.msgs.push({ raw: str }); }
         }
       });
       this.ws.on('error', (err) => {
@@ -99,8 +90,31 @@ class TestClient {
 
 // --- Test Runner ---
 async function run() {
-  console.log("=== Loading Credentials from .env.test ===");
+  console.log("=== SlideBolt E2E Test Suite ===");
   console.log(`Target: ${WS_URL}`);
+
+  const admin = new TestClient(WS_URL, "Admin");
+  await admin.connect();
+
+  console.log("\n--- Setup: Creating Test Clients ---");
+  const createHome1 = await admin.sendAndAwait({
+    action: "admin_create_client",
+    auth: { token: ADMIN_SECRET },
+    label: "E2E Home 1"
+  });
+  const HOME1 = { clientId: createHome1.clientId, secret: createHome1.secret };
+
+  const createHome2 = await admin.sendAndAwait({
+    action: "admin_create_client",
+    auth: { token: ADMIN_SECRET },
+    label: "E2E Home 2"
+  });
+  const HOME2 = { clientId: createHome2.clientId, secret: createHome2.secret };
+
+  if (!HOME1.clientId || !HOME2.clientId) {
+    console.error("Failed to create test clients", { createHome1, createHome2 });
+    process.exit(1);
+  }
   console.log(`Home 1: ${HOME1.clientId}`);
   console.log(`Home 2: ${HOME2.clientId}`);
 
@@ -119,8 +133,8 @@ async function run() {
     clientId: HOME1.clientId,
     secret: "wrong-secret-123"
   });
-  if (resA1.statusCode === 403) console.log("✅ Pass: Got 403 Forbidden");
-  else console.error("❌ Fail: Expected 403, got", resA1);
+  if (resA1.error === "Invalid secret") console.log("✅ Pass: Got Invalid secret error");
+  else console.error("❌ Fail: Expected Invalid secret, got", resA1);
 
   // Test 2: Invalid ClientID
   console.log("Test A.2: Register with random ClientID...");
@@ -129,8 +143,8 @@ async function run() {
     clientId: "random-uuid-999",
     secret: "some-secret"
   });
-  if (resA2.statusCode === 403) console.log("✅ Pass: Got 403 Forbidden (Invalid Client)");
-  else console.error("❌ Fail: Expected 403, got", resA2);
+  if (resA2.error === "Invalid client") console.log("✅ Pass: Got Invalid client error");
+  else console.error("❌ Fail: Expected Invalid client, got", resA2);
 
   intruder.close();
 
@@ -149,8 +163,8 @@ async function run() {
     clientId: HOME1.clientId,
     secret: HOME1.secret
   });
-  if (resB1.statusCode === 200) console.log("✅ Pass: Got 200 OK");
-  else console.error("❌ Fail: Expected 200, got", resB1);
+  if (resB1.status === "ok") console.log("✅ Pass: Got status ok");
+  else console.error("❌ Fail: Expected ok, got", resB1);
 
   // Test 2: Device Upsert
   console.log("Test B.2: Device Upsert...");
@@ -163,8 +177,8 @@ async function run() {
     },
     state: { powerState: "OFF" }
   });
-  if (resB2.statusCode === 200) console.log("✅ Pass: Upsert OK");
-  else console.error("❌ Fail: Expected 200, got", resB2);
+  if (resB2.ok) console.log("✅ Pass: Upsert OK");
+  else console.error("❌ Fail: Expected ok:true, got", resB2);
 
   // Test 3: State Update
   console.log("Test B.3: State Update...");
@@ -174,15 +188,15 @@ async function run() {
     deviceId: "lamp-1",
     state: { powerState: "ON" }
   });
-  if (resB3.statusCode === 200) console.log("✅ Pass: State Update OK");
-  else console.error("❌ Fail: Expected 200, got", resB3);
+  if (resB3.ok) console.log("✅ Pass: State Update OK");
+  else console.error("❌ Fail: Expected ok:true, got", resB3);
 
   // ==========================================
   // PHASE C: ISOLATION TESTING (Spoofing)
   // ==========================================
   console.log("\n=== Phase C: Isolation Testing ===");
   
-  console.log("Test C.1: Spoofing Home 2...");
+  console.log("Test C.1: Spoofing Home 2 (Update device in another house)...");
   const resC1 = await client1.sendAndAwait({
     action: "state_update",
     clientId: HOME2.clientId,
@@ -190,13 +204,25 @@ async function run() {
     state: { powerState: "EVIL" }
   });
 
-  if (resC1.statusCode === 200) {
-    console.warn("⚠️  WARNING: Spoofing succeeded! Authentication is NOT enforced on data actions.");
+  if (resC1.error === "Unauthorized" || resC1.error === "Invalid client") {
+    console.log("✅ Pass: Spoofing blocked (Connection-to-Client binding enforced)");
+  } else if (resC1.ok) {
+    console.warn("❌ FAIL: Spoofing succeeded! Authentication is NOT enforced on data actions.");
+    process.exit(1);
   } else {
-    console.log("✅ Pass: Spoofing blocked (Unexpected but good!)");
+    console.log("Received unexpected response:", resC1);
   }
 
+  // ==========================================
+  // PHASE D: CLEANUP
+  // ==========================================
+  console.log("\n=== Phase D: Cleanup ===");
+  await admin.sendAndAwait({ action: "admin_delete_client", auth: { token: ADMIN_SECRET }, clientId: HOME1.clientId });
+  await admin.sendAndAwait({ action: "admin_delete_client", auth: { token: ADMIN_SECRET }, clientId: HOME2.clientId });
+  console.log("✅ Pass: Cleanup complete");
+
   client1.close();
+  admin.close();
   console.log("\n=== Test Suite Complete ===");
 }
 

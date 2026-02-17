@@ -7,6 +7,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import * as apigwv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as appregistry from 'aws-cdk-lib/aws-servicecatalogappregistry';
+import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 
 export class SldBltStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -60,9 +61,39 @@ export class SldBltStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    const dataTable = new dynamodb.Table(this, 'DataTable', {
+      tableName: `${prefix}Data-v1-${stage}`,
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      timeToLiveAttribute: 'ttl',
+      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
+    });
+
+    dataTable.addGlobalSecondaryIndex({
+      indexName: 'GSI1',
+      partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi1sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     const lambdaCodeDir = path.join(__dirname, '..', '..', 'lambda');
 
     // --- Lambdas ---
+
+    const reporterLambda = new lambda.Function(this, 'ReporterLambda', {
+      functionName: `${prefix}Reporter`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'slideBoltReporter.handler',
+      code: lambda.Code.fromAsset(lambdaCodeDir),
+      timeout: cdk.Duration.seconds(15),
+      environment: {
+        DATA_TABLE: dataTable.tableName,
+        ALEXA_CLIENT_ID: process.env.ALEXA_CLIENT_ID || '',
+        ALEXA_CLIENT_SECRET: process.env.ALEXA_CLIENT_SECRET || '',
+      },
+    });
 
     const wsRelay = new lambda.Function(this, 'WsRelayLambda', {
       functionName: `${prefix}Relay`,
@@ -73,6 +104,7 @@ export class SldBltStack extends cdk.Stack {
       environment: {
         USERS_TABLE: usersTable.tableName,
         DEVICES_TABLE: devicesTable.tableName,
+        DATA_TABLE: dataTable.tableName,
       },
     });
 
@@ -85,7 +117,10 @@ export class SldBltStack extends cdk.Stack {
       environment: {
         USERS_TABLE: usersTable.tableName,
         DEVICES_TABLE: devicesTable.tableName,
+        DATA_TABLE: dataTable.tableName,
         TEST_ALEXA_TOKEN: process.env.TEST_ALEXA_TOKEN || '',
+        ALEXA_CLIENT_ID: process.env.ALEXA_CLIENT_ID || '',
+        ALEXA_CLIENT_SECRET: process.env.ALEXA_CLIENT_SECRET || '',
       },
     });
 
@@ -98,6 +133,7 @@ export class SldBltStack extends cdk.Stack {
       environment: {
         USERS_TABLE: usersTable.tableName,
         DEVICES_TABLE: devicesTable.tableName,
+        DATA_TABLE: dataTable.tableName,
         ADMIN_SECRET: wsSharedSecret.valueAsString,
       },
     });
@@ -106,12 +142,24 @@ export class SldBltStack extends cdk.Stack {
 
     usersTable.grantReadWriteData(wsRelay);
     devicesTable.grantReadWriteData(wsRelay);
+    dataTable.grantReadWriteData(wsRelay);
     
     usersTable.grantReadWriteData(smartHome);
     devicesTable.grantReadWriteData(smartHome);
+    dataTable.grantReadWriteData(smartHome);
     
     usersTable.grantReadWriteData(adminLambda);
     devicesTable.grantReadWriteData(adminLambda);
+    dataTable.grantReadWriteData(adminLambda);
+
+    // Reporter Permissions & Stream
+    dataTable.grantReadWriteData(reporterLambda);
+    reporterLambda.addEventSource(new lambdaEventSources.DynamoEventSource(dataTable, {
+      startingPosition: lambda.StartingPosition.TRIM_HORIZON,
+      batchSize: 5,
+      bisectBatchOnError: true,
+      retryAttempts: 3
+    }));
 
     // --- WebSocket API ---
 
@@ -148,7 +196,7 @@ export class SldBltStack extends cdk.Stack {
     wsApi.addRoute('state_update', { integration: relayIntegration });
     wsApi.addRoute('device_upsert', { integration: relayIntegration });
     wsApi.addRoute('list_devices', { integration: relayIntegration });
-    wsApi.addRoute('delete_device', { integration: relayIntegration });
+    wsApi.addRoute('device_delete', { integration: relayIntegration });
 
     // Admin Routes
     wsApi.addRoute('admin_create_client', { integration: adminIntegration });
@@ -184,7 +232,7 @@ export class SldBltStack extends cdk.Stack {
       });
     };
 
-    grantInvoke(wsRelay, ['$connect', '$disconnect', '$default', 'register', 'state_update', 'device_upsert', 'list_devices', 'delete_device'], 'WsRelay');
+    grantInvoke(wsRelay, ['$connect', '$disconnect', '$default', 'register', 'state_update', 'device_upsert', 'list_devices', 'device_delete'], 'WsRelay');
     grantInvoke(adminLambda, [
       'admin_create_client', 
       'admin_list_clients', 

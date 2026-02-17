@@ -1,15 +1,15 @@
-import { db, DEVICES_TABLE } from '../../lib/dynamo.mjs';
+import { db, DATA_TABLE } from '../../lib/dynamo.mjs';
 import { reply } from '../../lib/ws.mjs';
 
 export async function handleListDevices(clientId, connectionId) {
-  // Debug: DB Query logic restored
-  const res = await db(DEVICES_TABLE).query(
-    "clientId = :pk AND begins_with(sk, :sk)",
-    { ":pk": clientId, ":sk": "device#" }
+  // Query all items in the client's partition starting with DEVICE#
+  const res = await db(DATA_TABLE).query(
+    "pk = :pk AND begins_with(sk, :sk)",
+    { ":pk": `CLIENT#${clientId}`, ":sk": "DEVICE#" }
   );
   
   const devices = (res.Items || []).map(item => ({
-    endpointId: item.sk.replace('device#', ''),
+    endpointId: item.sk.replace('DEVICE#', ''),
     ...item.endpoint,
     state: item.state,
     status: item.status,

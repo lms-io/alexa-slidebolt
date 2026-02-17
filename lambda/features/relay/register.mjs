@@ -1,6 +1,7 @@
-import { db, USERS_TABLE, DEVICES_TABLE } from '../../lib/dynamo.mjs';
+import { db, DATA_TABLE } from '../../lib/dynamo.mjs';
 import { hashSecret } from '../../lib/crypto.mjs';
 import { reply } from '../../lib/ws.mjs';
+import { handleListDevices } from './listDevices.mjs';
 
 export async function handleRegister(clientId, body, connectionId, now) {
   const secret = body.secret;
@@ -10,7 +11,7 @@ export async function handleRegister(clientId, body, connectionId, now) {
   }
 
   // 1. Get Client Meta
-  const res = await db(USERS_TABLE).get({ pk: `client#${clientId}` });
+  const res = await db(DATA_TABLE).get({ pk: `CLIENT#${clientId}`, sk: 'METADATA' });
   const meta = res.Item;
 
   if (!meta) {
@@ -34,11 +35,20 @@ export async function handleRegister(clientId, body, connectionId, now) {
     return { statusCode: 403 };
   }
 
-  // 4. Store Connection in Devices Table
-  await db(DEVICES_TABLE).put({
-    clientId: clientId,
-    sk: 'conn',
+  // 4. Store Connection for Alexa -> Hub lookup
+  await db(DATA_TABLE).put({
+    pk: `CLIENT#${clientId}`,
+    sk: 'CONN',
     connectionId: connectionId,
+    connectedAt: now,
+    ttl: Math.floor(Date.now() / 1000) + (24 * 60 * 60)
+  });
+
+  // 5. Store Session for Hub -> Cloud lookup (Implicit Session)
+  await db(DATA_TABLE).put({
+    pk: `CONN#${connectionId}`,
+    sk: 'SESSION',
+    clientId: clientId,
     connectedAt: now,
     ttl: Math.floor(Date.now() / 1000) + (24 * 60 * 60)
   });
@@ -51,6 +61,9 @@ export async function handleRegister(clientId, body, connectionId, now) {
     status: "ok", 
     rateLimit: { maxPerMinute: limit } 
   });
+
+  // Proactively send the device list immediately after registration success
+  await handleListDevices(clientId, connectionId);
 
   return { statusCode: 200, body: "ok" };
 }

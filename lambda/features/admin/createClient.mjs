@@ -1,22 +1,28 @@
-import { db, USERS_TABLE } from '../../lib/dynamo.mjs';
+import { db, DATA_TABLE } from '../../lib/dynamo.mjs';
 import { generateClientCredentials } from '../../lib/crypto.mjs';
 
 export async function createClient(payload) {
   const { clientId, rawSecret, secretHash, now } = generateClientCredentials();
 
   const item = {
-    pk: `client#${clientId}`,
-    clientId: clientId, // Redundant but useful for listing
+    pk: `CLIENT#${clientId}`,
+    sk: 'METADATA',
+    clientId: clientId, 
     secretHash: secretHash,
     label: payload.label || 'Untitled',
-    ownerEmail: payload.ownerEmail || null, // Authorized email to claim
     status: 'active',
     maxMsgsPerMinute: payload.maxMsgsPerMinute || 60,
     createdAt: now,
     updatedAt: now
   };
 
-  await db(USERS_TABLE).put(item);
+  if (payload.ownerEmail) {
+    item.ownerEmail = payload.ownerEmail;
+    item.gsi1pk = `EMAIL#${payload.ownerEmail}`;
+    item.gsi1sk = `CLIENT#${clientId}`;
+  }
+
+  await db(DATA_TABLE).put(item);
 
   return {
     ok: true,

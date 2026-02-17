@@ -19,6 +19,10 @@
   },
   "homepage": "https://github.com/lms-io/alexa-slidebolt#readme",
   "dependencies": {
+    "@aws-sdk/client-apigatewaymanagementapi": "^3.990.0",
+    "@aws-sdk/client-dynamodb": "^3.990.0",
+    "@aws-sdk/lib-dynamodb": "^3.990.0",
+    "@aws-sdk/util-dynamodb": "^3.990.0",
     "ws": "^8.19.0"
   }
 }

@@ -1,4 +1,4 @@
-import { db, USERS_TABLE } from '../../lib/dynamo.mjs';
+import { db, DATA_TABLE } from '../../lib/dynamo.mjs';
 
 export async function revokeClient(payload) {
   const clientId = payload.clientId;
@@ -6,8 +6,8 @@ export async function revokeClient(payload) {
 
   const now = new Date().toISOString();
 
-  await db(USERS_TABLE).update(
-    { pk: `client#${clientId}` },
+  await db(DATA_TABLE).update(
+    { pk: `CLIENT#${clientId}`, sk: 'METADATA' },
     "set #s = :revoked, updatedAt = :now",
     { "#s": "status" },
     {

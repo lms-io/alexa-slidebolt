@@ -215,7 +215,7 @@ async function run() {
   // 7. Delete Device
   console.log("\n--- Client: Delete Device ---");
   const delRes = await client.sendAndAwait({
-    action: "delete_device",
+    action: "device_delete",
     clientId: clientCreds.clientId,
     deviceId: endpointId
   });

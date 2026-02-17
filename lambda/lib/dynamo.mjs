@@ -6,6 +6,7 @@ const docClient = DynamoDBDocumentClient.from(client);
 
 export const USERS_TABLE = process.env.USERS_TABLE;
 export const DEVICES_TABLE = process.env.DEVICES_TABLE;
+export const DATA_TABLE = process.env.DATA_TABLE;
 
 export const db = (tableName) => ({
   put: (item) => docClient.send(new PutCommand({ TableName: tableName, Item: item })),
